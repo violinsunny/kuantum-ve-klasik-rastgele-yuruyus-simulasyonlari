@@ -1,0 +1,1 @@
+# kuantum-ve-klasik-rastgele-yuruyus-simulasyonlari
