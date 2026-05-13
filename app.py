@@ -1,49 +1,80 @@
+%%writefile app.py
 import streamlit as st
 import numpy as np
-import plotly.graph_objects as go
-from scipy.stats import binom
+import time
 
-# Sayfa Genişliği ve Tasarımı
-st.set_page_config(page_title="Rastgele Yürüyüş Deneyi", layout="wide")
+st.set_page_config(page_title="Kuantum Deney Alanı", layout="wide")
 
-# --- CSS: Şık Görünüm ---
+st.title("🔬 Somut Rastgele Yürüyüş Deneyi")
 st.markdown("""
-    <style>
-    .main { background-color: #0e1117; }
-    .stMetric { background-color: #1f2937; padding: 15px; border-radius: 10px; }
-    </style>
-    """, unsafe_allow_html=True)
-
-# --- BAŞLIK VE GİRİŞ ---
-st.title("🔬 Rastgele Yürüyüş Deneyi: Somut Bir Görselleştirme")
-st.markdown("""
-Bu simülasyon, bir parçacığın (makro dünyada bir insan veya atom altı seviyede bir kuantum parçacığı) hareketini somut bir görsel deney olarak sunar.
-Bu deneyde, "rastgeleliğin" klasik ve kuantum dünyalarında nasıl farklı sonuçlar doğurduğunu gözlemleyebilirsiniz.
+Aşağıdaki iki panelde, parçacıkların (atomların veya insanların) nasıl yol aldığını **canlı** olarak izleyin.
+*   **Üst Panel:** Yazı-tura atan bir insan (Klasik).
+*   **Alt Panel:** Aynı anda her yerde olan bir kuantum dalgası.
 """)
 
-# --- YAN MENÜ (KONTROL PANELİ) ---
-with st.sidebar:
-    st.header("⚙️ Deney Parametreleri")
-    steps = st.slider("Adım Sayısı (Zaman)", min_value=10, max_value=200, value=100)
-    st.info("Adım sayısını artırarak klasik ve kuantum arasındaki farkın nasıl derinleştiğini gözlemleyebilirsiniz.")
+# --- Ayarlar ---
+steps = st.sidebar.slider("Adım Sayısı", 10, 100, 50)
+speed = st.sidebar.slider("Simülasyon Hızı", 0.01, 0.5, 0.1)
+start_button = st.button("Deneyi Başlat")
 
-# --- ANALİZ VE HESAPLAMA ---
-def get_data(steps):
-    x = np.arange(-steps, steps + 1)
+# --- Deney Alanları ---
+classic_area = st.empty()
+quantum_area = st.empty()
+
+def render_experiment(positions, probs, title, color_hex):
+    """Parçacıkları fiziksel noktalar olarak çizen fonksiyon"""
+    # Normalize edilmiş olasılıklarla 'parçacık yoğunluğu' oluşturma
+    # Yüksek olasılıklı yerlerde noktalar daha parlak ve büyük görünür
     
-    # 1. Klasik Yürüyüş (Binom/Normal Dağılım)
-    y_classic = np.zeros(len(x))
-    for i, pos in enumerate(x):
-        if (steps + pos) % 2 == 0:
-            y_classic[i] = binom.pmf((steps + pos) // 2, steps, 0.5)
-            
-    # 2. Kuantum Yürüyüş (Hadamard Walk)
+    # Plotly ile görsel bir 'piste' dönüştürelim
+    import plotly.graph_objects as go
+    
+    fig = go.Figure()
+    
+    # Zemin çizgisi
+    fig.add_shape(type="line", x0=-steps, y0=0, x1=steps, y1=0, line=dict(color="Gray", width=2))
+    
+    # Parçacıkların konumları (Somut topçuklar)
+    fig.add_trace(go.Scatter(
+        x=positions,
+        y=[0] * len(positions),
+        mode='markers',
+        marker=dict(
+            size=probs * 300,  # Olasılığa göre topun boyutu değişir
+            color=color_hex,
+            opacity=0.7,
+            line=dict(width=2, color='white')
+        ),
+        name="Parçacık Bulutu"
+    ))
+    
+    fig.update_layout(
+        title=title,
+        xaxis=dict(range=[-steps-5, steps+5], showgrid=False, zeroline=False),
+        yaxis=dict(range=[-1, 1], showgrid=False, zeroline=False, showticklabels=False),
+        height=250,
+        template="plotly_dark",
+        margin=dict(l=20, r=20, t=40, b=20)
+    )
+    return fig
+
+if start_button:
+    # Kuantum hesaplama hazırlığı (Hadamard)
     H = (1/np.sqrt(2)) * np.array([[1, 1], [1, -1]])
     psi = np.zeros((2 * steps + 1, 2), dtype=complex)
     psi[steps, 0] = 1/np.sqrt(2)
     psi[steps, 1] = 1j/np.sqrt(2)
     
-    for _ in range(steps):
+    # Klasik için başlangıç
+    pos_c = np.array([steps]) # Başlangıç noktası (merkez)
+    
+    for t in range(1, steps + 1):
+        # --- KLASİK ADIM --- (Sarhoş yürüyüşü)
+        from scipy.stats import binom
+        x_c = np.arange(-steps, steps + 1)
+        y_c = np.array([binom.pmf((steps + i)//2, t, 0.5) if (t + i) % 2 == 0 else 0 for i in x_c])
+        
+        # --- KUANTUM ADIM --- (Girişim)
         new_psi = np.zeros_like(psi)
         for j in range(len(psi)):
             if abs(psi[j,0]) > 0 or abs(psi[j,1]) > 0:
@@ -51,82 +82,18 @@ def get_data(steps):
                 if j > 0: new_psi[j-1, 0] += coin[0]
                 if j < len(psi) - 1: new_psi[j+1, 1] += coin[1]
         psi = new_psi
-    y_quantum = np.sum(np.abs(psi)**2, axis=1)
-    
-    return x, y_classic, y_quantum
+        y_q = np.sum(np.abs(psi)**2, axis=1)
+        x_q = np.arange(-steps, steps + 1)
 
-x, y_c, y_q = get_data(steps)
+        # GÖRSELLEŞTİRME GÜNCELLEME
+        classic_area.plotly_chart(render_experiment(x_c, y_c, "🟠 KLASİK DENEY: Parçacık merkezde hapsoluyor", "#FFA500"), use_container_width=True)
+        quantum_area.plotly_chart(render_experiment(x_q, y_q, "🔵 KUANTUM DENEY: Parçacık dalga gibi iki yöne fırlıyor", "#00FFFF"), use_container_width=True)
+        
+        time.sleep(speed)
 
-# --- SOMUT GÖRSEL DENEY ---
-st.subheader("📊 Rastgele Yürüyüş Deneyi")
-
-# Klasik Yürüyüş Deneyimi
-st.markdown("### 🟠 Klasik Yürüyüş Deneyi")
-col1, col2 = st.columns(2)
-with col1:
-    st.markdown("""
-        Bu deneyde, bir insan gözleri kapalı bir şekilde düz bir çizgide ilerler. Her adımda yazı-tura atar.
-        Yazı gelirse sağa, tura gelirse sola gider.
-    """)
-with col2:
-    fig_classic = go.Figure()
-    fig_classic.add_trace(go.Bar(
-        x=x, y=y_c,
-        name="Klasik (Sarhoş Yürüyüşü)",
-        marker_color='#FFA500',
-        opacity=0.6
-    ))
-    fig_classic.update_layout(
-        template="plotly_dark",
-        xaxis=dict(title="Konum", range=[-steps, steps]),
-        yaxis=dict(title="Parçacığın Orada Bulunma İhtimali"),
-        margin=dict(l=20, r=20, t=20, b=20)
-    )
-    st.plotly_chart(fig_classic, use_container_width=True)
-
-# Kuantum Yürüyüş Deneyimi
-st.markdown("### 🔵 Kuantum Yürüyüş Deneyi")
-col1, col2 = st.columns(2)
-with col1:
-    st.markdown("""
-        Bu deneyde, bir kuantum parçacığı düz bir çizgide ilerler. Her adımda "süperpozisyon" halindedir; 
-        yani aynı anda hem sağa hem sola gider. Bu dalgalar birbirleriyle etkileşime girer.
-    """)
-with col2:
-    fig_quantum = go.Figure()
-    fig_quantum.add_trace(go.Scatter(
-        x=x, y=y_q,
-        name="Kuantum (Dalga Fonksiyonu)",
-        line=dict(color='#00FFFF', width=3),
-        mode='lines+markers',
-        fill='tozeroy'
-    ))
-    fig_quantum.update_layout(
-        template="plotly_dark",
-        xaxis=dict(title="Konum", range=[-steps, steps]),
-        yaxis=dict(title="Parçacığın Orada Bulunma İhtimali"),
-        margin=dict(l=20, r=20, t=20, b=20)
-    )
-    st.plotly_chart(fig_quantum, use_container_width=True)
-
-# --- BİLGİ KARTLARI (ANALİZ KISMI) ---
-st.markdown("---")
-col1, col2 = st.columns(2)
-
-with col1:
-    st.subheader("🟠 Klasik Analiz")
-    st.write("""
-    Klasik yürüyüşte, parçacık merkezde toplanma eğilimindedir. Bu bir Normal (Gauss) Dağılımıdır.
-    Aynı anda sadece bir konumda bulunabilir.
-    """)
-
-with col2:
-    st.subheader("🔵 Kuantum Analiz")
-    st.write("""
-    Kuantum yürüyüşte parçacıklar birbirini yok edebilir veya güçlendirebilir (Girişim).
-    Bu yüzden uçlara doğru hızla yayılırlar. Kuantum arama algoritmalarının klasik olanlardan 
-    çok daha hızlı olmasının temel sebebi bu yayılma hızıdır ($t$ ile orantılı).
-    """)
-
-# --- SOMUTLAŞTIRMA ÖRNEĞİ ---
-st.success(f"🔍 **Deney Sonucu:** Şu an {steps} adım attınız. Klasik parçacık hala merkeze yakınken, Kuantum parçacığı çoktan {int(steps*0.7)} birim uzağa ulaşma şansını yakaladı!")
+st.markdown("""
+---
+### 🧪 Neyi Gözlemliyoruz?
+1.  **Klasik Parçacık (Turuncu):** Tek bir varlık gibi davranır. Sağa sola zıplasa da zamanla hep orta bölgede (0 civarı) bir yığın oluşturur.
+2.  **Kuantum Parçacığı (Mavi):** Tek bir top gibi değil, bir **sis bulutu** gibi hareket eder. Bazı yerlerde sönümlenir (girişim), bazı yerlerde devleşir ve merkezin aksine uçlara doğru "ışınlanır" gibi yayılır.
+""")
