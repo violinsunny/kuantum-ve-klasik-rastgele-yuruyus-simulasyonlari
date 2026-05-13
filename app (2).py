@@ -1,94 +1,81 @@
 import streamlit as st
 import numpy as np
-import time
+import matplotlib.pyplot as plt
 
-# Sayfa Ayarları
-st.set_page_config(page_title="Kuantum Rastgele Yürüyüş Analizi", layout="wide")
+def classic_random_walk(steps):
+    positions = np.arange(-steps, steps + 1)
+    probs = np.zeros(len(positions))
+    # Binom dağılımı klasik yürüyüşün sonucudur
+    from scipy.stats import binom
+    for i, pos in enumerate(positions):
+        if (steps + pos) % 2 == 0:
+            probs[i] = binom.pmf((steps + pos) // 2, steps, 0.5)
+    return positions, probs
 
-# Görsel Stil Ayarları
-st.markdown("""
-    <style>
-    .main { background-color: #0e1117; color: white; }
-    .stButton>button {
-        background-color: #00d4ff;
-        color: black;
-        border-radius: 12px;
-        font-weight: bold;
-        transition: 0.3s;
-    }
-    .stButton>button:hover { background-color: #ff4b4b; color: white; }
-    </style>
-    """, unsafe_allow_html=True)
+def quantum_random_walk(steps):
+    # Başlangıç durumu: |0> konumu ve spin yukarı/aşağı süperpozisyonu
+    size = 2 * steps + 1
+    state = np.zeros((size, 2), dtype=complex)
+    state[steps, 0] = 1/np.sqrt(2)
+    state[steps, 1] = 1j/np.sqrt(2)
 
-st.title("Kuantum ve Klasik Rastgele Yürüyüş Simülasyonları")
-st.write("Sistemlerin evrimini 'olasılık dağılımı' ve 'dalga fonksiyonu' üzerinden analiz edin.")
+    # Hadamard Operatörü
+    H = np.array([[1, 1], [1, -1]]) / np.sqrt(2)
+
+    for _ in range(steps):
+        # 1. Paratlacık (Coin) Adımı: Hadamard uygula
+        new_state = np.zeros_like(state)
+        for i in range(size):
+            state[i] = np.dot(H, state[i])
+        
+        # 2. Kaydırma (Shift) Adımı
+        for i in range(size):
+            if i > 0:
+                new_state[i-1, 0] += state[i, 0] # Sola kaydır
+            if i < size - 1:
+                new_state[i+1, 1] += state[i, 1] # Sağa kaydır
+        state = new_state
+
+    probabilities = np.abs(state[:, 0])**2 + np.abs(state[:, 1])**2
+    return np.arange(-steps, steps + 1), probabilities
+
+# Streamlit Arayüzü
+st.set_page_config(page_title="QRW vs CRW Visualizer", layout="wide")
+st.title("🚶‍♂️ Rastgele Yürüyüşler: Kuantum vs Klasik")
+
+st.sidebar.header("Parametreler")
+steps = st.sidebar.slider("Adım Sayısı (N)", min_value=10, max_value=200, value=50)
 
 col1, col2 = st.columns(2)
 
+# Hesaplamalar
+pos_c, prob_c = classic_random_walk(steps)
+pos_q, prob_q = quantum_random_walk(steps)
+
 with col1:
-    st.header("1) Klasik Yürüyüş")
-    st.write("Sistem, her adımda **belirli** bir durumdadır.")
-    steps_c = st.slider("İterasyon Sayısı (K)", 5, 30, 15)
-
-    if st.button("Klasik Deneyi Başlat"):
-        pos = 0
-        display_area = st.empty()
-        for i in range(steps_c):
-            # Rastgele seçim: Bağımsız olaylar toplama ilkesi
-            coin = np.random.choice([-1, 1])
-            pos += coin
-
-            viz = "".join(["🔴 " if j == pos else "▫️ " for j in range(-steps_c, steps_c + 1)])
-            display_area.subheader(viz)
-            time.sleep(0.2)
-        st.success(f"Sistem Kararlı Durumu: Konum {pos}")
+    st.subheader("Klasik Rastgele Yürüyüş (CRW)")
+    fig_c, ax_c = plt.subplots()
+    ax_c.bar(pos_c, prob_c, color='gray', alpha=0.7)
+    ax_c.set_title(f"Gauss Dağılımı ({steps} Adım)")
+    ax_c.set_xlabel("Konum")
+    ax_c.set_ylabel("Olasılık")
+    st.pyplot(fig_c)
+    st.info("Klasik yürüyüşte parçacık merkezde toplanma eğilimindedir.")
 
 with col2:
-    st.header("2) Kuantum Yürüyüşü")
-    st.write("Sistem, durumların **süperpozisyonu** olarak evrilir.")
-    steps_q = st.slider("İterasyon Sayısı (Q)", 5, 30, 15)
+    st.subheader("Kuantum Rastgele Yürüyüş (QRW)")
+    fig_q, ax_q = plt.subplots()
+    ax_q.plot(pos_q, prob_q, color='#00FFAA', linewidth=2)
+    ax_q.fill_between(pos_q, prob_q, color='#00FFAA', alpha=0.3)
+    ax_q.set_title(f"Kuantum Yayılımı ({steps} Adım)")
+    ax_q.set_xlabel("Konum")
+    ax_q.set_ylabel("Olasılık")
+    st.pyplot(fig_q)
+    st.success("Kuantum yürüyüşünde 'girişim' nedeniyle uçlara doğru hızlı bir yayılım görülür.")
 
-    if st.button("Kuantum Evrimini Başlat"):
-        size = 2 * steps_q + 1
-        # Başlangıç durumu (State Vector)
-        state = np.zeros(size, dtype=complex)
-        state[steps_q] = 1.0
-
-        display_area_q = st.empty()
-
-        for i in range(steps_q):
-            # Kuantum yayılımı: Her konum bir dalga fonksiyonu genliği taşır
-            new_state = np.zeros_like(state)
-            for j in range(1, size-1):
-                if abs(state[j]) > 0:
-                    # Schrödinger benzeri yayılım: Faz korunumu ile her iki yöne geçiş
-                    new_state[j-1] += state[j] * (1/np.sqrt(2))
-                    new_state[j+1] += state[j] * (1j/np.sqrt(2)) # i fazı (hayali birim) ekleyerek girişim yaratılır
-
-            state = new_state / np.linalg.norm(new_state) # Üniter koruma
-            probs = np.abs(state)**2
-
-            viz_q = "".join(["🔵 " if p > 0.05 else "🔹 " if p > 0.005 else "▫️ " for p in probs])
-            display_area_q.subheader(viz_q)
-            time.sleep(0.2)
-        st.info("Sistem Koherent Durumu: Yayılım ve Girişim gözlemlendi.")
-
-st.markdown("---")
-
-# Orta Düzey Akademik Açıklama Paneli
-st.markdown("""
-### 🧠 Sistemsel Karşılaştırma ve Mekanikler
-
-#### **Klasik Stokastik Süreç (Bernoulli)**
-Klasik rastgele yürüyüşte sistem, **Merkezi Limit Teoremi**'ne göre hareket eder. Her adım bir önceki adımdan bağımsızdır.
-*   **İstatistik:** Birçok deneme yapıldığında sonuçlar merkezde toplanarak bir **Gauss (Çan) eğrisi** oluşturur.
-*   **Bilgi:** Parçacığın konumu her zaman kesin olarak tanımlıdır (Lokalite).
-
-#### **Kuantum Üniter Evrim (Hadamard)**
-Kuantum rastgele yürüyüşü, klasik olandan farklı olarak **Girişim (Interference)** fenomenine dayanır.
-*   **Süperpozisyon:** Parçacık sadece sağa veya sola gitmez; her iki olasılık genliğini de aynı anda taşır. Animasyondaki mavi 'bulut' yayılımı, parçacığın **Dalga Fonksiyonu**'nun genişlemesini temsil eder.
-*   **Girişim:** Farklı yollardan gelen olasılık genlikleri birbirini yok edebilir (yıkıcı) veya güçlendirebilir (yapıcı). Bu yüzden kuantum parçacığı klasik olandan **çok daha hızlı** bir şekilde uç noktalara yayılır.
-*   **Hız:** Klasik yürüyüşte konum $ \sqrt{t} $ ile yayılırken, kuantum yürüyüşünde konum doğrudan $ t $ süresiyle orantılı yayılır.
-
-> **Sonuç:** Klasik dünya bir 'nokta' takibiyken, kuantum dünyası bir 'dalga' dinamiğidir.
+st.divider()
+st.markdown(f"""
+### Temel Farklar:
+*   **Hız:** Klasik yürüyüşte yayılım $O(\sqrt{N})$ iken, Kuantumda $O(N)$'dir. 
+*   **Şekil:** Klasik dağılım bir **Çan Eğrisi (Normal Dağılım)** oluşturur. Kuantum dağılımı ise uçlarda yüksek zirveler yapan asimetrik veya balistik bir yapı sunar.
 """)
