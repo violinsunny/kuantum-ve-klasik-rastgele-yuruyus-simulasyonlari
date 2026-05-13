@@ -1,78 +1,75 @@
-import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.stats import binom
+from matplotlib.animation import FuncAnimation
 
-# Sayfa yapılandırması
-st.set_page_config(page_title="Kuantum vs Klasik Rastgele Yürüyüş", layout="wide")
+# --- Parametreler ---
+STEPS = 40
+size = 2 * STEPS + 1
+x = np.arange(-STEPS, STEPS + 1)
 
-st.title("🚶‍♂️ Rastgele Yürüyüş Simülasyonu")
-st.markdown("""
-Bu uygulama, **Klasik Rastgele Yürüyüş** (Yazı-Tura) ile **Kuantum Rastgele Yürüyüş** arasındaki farkı görselleştirir.
-Kuantum yürüyüşlerdeki 'boynuz' şeklindeki yayılımın, klasik 'çan eğrisi'nden ne kadar farklı olduğuna dikkat edin.
-""")
+# --- Kuantum Yürüyüş Hazırlığı ---
+# Başlangıç durumu: Merkezde, süperpozisyon halinde bir 'para'
+q_state = np.zeros((2, size), dtype=complex)
+q_state[0, STEPS] = 1 / np.sqrt(2)
+q_state[1, STEPS] = 1j / np.sqrt(2)
+H = (1 / np.sqrt(2)) * np.array([[1, 1], [1, -1]])
 
-# Yan panel kontrolleri
-st.sidebar.header("Parametreler")
-steps = st.sidebar.slider("Adım Sayısı (Steps)", min_value=10, max_value=200, value=100)
+# --- Klasik Yürüyüş Hazırlığı ---
+c_pos = STEPS  # Başlangıç indeksi (0 noktası)
+c_history = np.zeros(size)
+c_history[c_pos] = 1
 
-def run_quantum_walk(steps):
-    size = 2 * steps + 1
-    pos = np.zeros((2, size), dtype=complex)
+# --- Görselleştirme Hazırlığı ---
+fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
+plt.subplots_adjust(hspace=0.4)
+
+# Klasik Grafik Ayarları
+ax1.set_xlim(-STEPS, STEPS)
+ax1.set_ylim(0, 1.1)
+ax1.set_title("Klasik Rastgele Yürüyüş (Tek Bir Kesin Nokta)")
+classic_point, = ax1.plot([], [], 'ro', ms=10, label="Parçacık")
+classic_bar = ax1.bar(x, np.zeros(size), color='red', alpha=0.3)
+
+# Kuantum Grafik Ayarları
+ax2.set_xlim(-STEPS, STEPS)
+ax2.set_ylim(0, 0.2) # Olasılıklar yayıldığı için limit daha düşük
+ax2.set_title("Kuantum Rastgele Yürüyüş (Süperpozisyon ve Girişim)")
+quantum_line, = ax2.plot([], [], color='#1E88E5', lw=2, label="Olasılık Dalgası")
+quantum_fill = ax2.fill_between(x, 0, 0, color='#1E88E5', alpha=0.3)
+
+def animate(frame):
+    global q_state, c_pos, quantum_fill
     
-    # Başlangıç durumu (Süperpozisyon)
-    pos[0, steps] = 1 / np.sqrt(2)
-    pos[1, steps] = 1j / np.sqrt(2)
+    if frame == 0: return classic_point, quantum_line
 
-    # Hadamard Operatörü
-    H = (1 / np.sqrt(2)) * np.array([[1, 1], [1, -1]])
-
-    for _ in range(steps):
-        # Para atışı (Coin flip)
-        temp_pos = np.zeros_like(pos)
-        for i in range(size):
-            pos[:, i] = np.dot(H, pos[:, i])
-            
-        # Hareket (Shift)
-        temp_pos[0, :-1] = pos[0, 1:]
-        temp_pos[1, 1:] = pos[1, :-1]
-        pos = temp_pos
-
-    return np.abs(pos[0, :])**2 + np.abs(pos[1, :])**2
-
-def run_classic_walk(steps):
-    k = np.arange(0, steps + 1)
-    probs_raw = binom.pmf(k, steps, 0.5)
+    # 1. Klasik Adım: Yazı/Tura at ve hareket et
+    move = np.random.choice([-1, 1])
+    c_pos += move
     
-    x_classic = 2 * k - steps
-    full_x = np.arange(-steps, steps + 1)
-    full_probs = np.zeros(len(full_x))
+    # 2. Kuantum Adımı: Hadamard + Shift
+    new_q_state = np.zeros_like(q_state)
+    # Hadamard (Para atışı)
+    for i in range(size):
+        q_state[:, i] = np.dot(H, q_state[:, i])
+    # Shift (Hareket)
+    new_q_state[0, :-1] = q_state[0, 1:]
+    new_q_state[1, 1:] = q_state[1, :-1]
+    q_state = new_q_state
     
-    # İndis eşleme
-    indices = x_classic + steps
-    full_probs[indices] = probs_raw
-    return full_probs
+    # Kuantum olasılık hesapla
+    q_probs = np.abs(q_state[0, :])**2 + np.abs(q_state[1, :])**2
 
-# Hesaplamaları yap
-x_axis = np.arange(-steps, steps + 1)
-q_probs = run_quantum_walk(steps)
-c_probs = run_classic_walk(steps)
+    # --- Güncelleme ---
+    # Klasik nokta güncelleme
+    classic_point.set_data([c_pos - STEPS], [0.5])
+    
+    # Kuantum çizgi ve dolgu güncelleme
+    quantum_line.set_data(x, q_probs)
+    # Dolgu efektini güncellemek için eskiyi silip yeniyi ekliyoruz
+    ax2.collections.clear()
+    quantum_fill = ax2.fill_between(x, 0, q_probs, color='#1E88E5', alpha=0.3)
 
-# Görselleştirme
-fig, ax = plt.subplots(figsize=(10, 5))
-ax.plot(x_axis, q_probs, label='Kuantum Yürüyüş', color='#1E88E5', lw=2)
-ax.fill_between(x_axis, q_probs, color='#1E88E5', alpha=0.2)
+    return classic_point, quantum_line
 
-ax.plot(x_axis, c_probs, label='Klasik Yürüyüş', color='#D81B60', lw=2, linestyle='--')
-ax.fill_between(x_axis, c_probs, color='#D81B60', alpha=0.1)
-
-ax.set_title(f"{steps} Adım Sonunda Olasılık Dağılımı")
-ax.set_xlabel("Konum")
-ax.set_ylabel("Bulunma Olasılığı")
-ax.legend()
-ax.grid(axis='y', alpha=0.3)
-
-st.pyplot(fig)
-
-# Bilgi kutuları
-col1, col2
+ani = FuncAnimation(fig, animate, frames=STEPS, interval=200, blit=False, repeat=False)
+plt.show()
